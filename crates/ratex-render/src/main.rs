@@ -47,6 +47,13 @@ fn main() {
         .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(40.0);
 
+    let padding = args
+        .iter()
+        .position(|a| a == "--padding")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(10.0);
+
     let color = args
         .iter()
         .position(|a| a == "--color")
@@ -81,7 +88,7 @@ fn main() {
 
     let options = RenderOptions {
         font_size,
-        padding: 10.0,
+        padding,
         background_color,
         font_dir,
         device_pixel_ratio,
@@ -204,6 +211,7 @@ Options:
 {font_dir_option}  --output-dir <DIR>                Write PNGs to this directory [default: output]
   --dpr <FACTOR>                    Render scale factor [default: 1.0]
   --font-size <SIZE>                Base font size in pixels [default: 40.0]
+  --padding <SIZE>                  Base padding on each side in pixels [default: 10.0]
   --color <COLOR>                   Formula color: named, #rgb, #rgba, #rrggbb,
                                     #rrggbbaa, or [MODEL]value
                                     [default: black]
