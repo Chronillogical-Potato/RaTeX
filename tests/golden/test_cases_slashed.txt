@@ -14,3 +14,10 @@
 x_{\slashed{p}}\quad x_{y_{\slashed{p}}}
 \slashed1
 \slashed{i}
+\mathbf{\slashed{p}}
+\boldsymbol{\slashed{p}}
+\mathit{\slashed{D}}
+\slashed{f}_i
+\slashed{D}x
+\left(\slashed{\partial}\right)
+\slashed{p+q}
