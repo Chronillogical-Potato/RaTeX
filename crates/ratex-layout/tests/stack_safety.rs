@@ -103,6 +103,7 @@ fn run_small_stack_cases() {
     let over_limit_cases = [
         ("group-33", nested("{", "}", 33)),
         ("sqrt-33", nested(r"\sqrt{", "}", 33)),
+        ("slashed-33", nested(r"\slashed{", "}", 33)),
         ("frac-33", nested_fraction(33)),
         ("left-right-33", nested(r"\left(", r"\right)", 33)),
         ("superscript-33", nested_superscript(33)),
@@ -116,6 +117,7 @@ fn run_small_stack_cases() {
     let adversarial_cases = [
         ("group-300", nested("{", "}", 300)),
         ("sqrt-300", nested(r"\sqrt{", "}", 300)),
+        ("slashed-300", nested(r"\slashed{", "}", 300)),
         ("frac-300", nested_fraction(300)),
         ("left-right-300", nested(r"\left(", r"\right)", 300)),
         ("superscript-300", nested_superscript(300)),
@@ -153,6 +155,7 @@ fn run_small_stack_cases() {
     // that bypasses the expression-depth counter.
     eprintln!("stack-safety parse-error case: unbraced-sqrt-4200");
     assert_parse_error(&unbraced_command_chain(r"\sqrt", 4_200));
+    assert_parse_error(&unbraced_command_chain(r"\slashed", 300));
 
     eprintln!("stack-safety parse-error case: unbraced-bigl-4200");
     assert_parse_error(&format!("{}(", r"\bigl".repeat(4_200)));
@@ -171,6 +174,7 @@ fn run_boundary_cases() {
     let boundary_cases = [
         ("group", nested("{", "}", 32)),
         ("sqrt", nested(r"\sqrt{", "}", 32)),
+        ("slashed", nested(r"\slashed{", "}", 32)),
         ("frac", nested_fraction(32)),
         ("left-right", nested(r"\left(", r"\right)", 32)),
         ("superscript", nested_superscript(32)),

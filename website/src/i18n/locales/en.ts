@@ -307,6 +307,7 @@ export const en = {
   physicsGallery: {
     eyebrow: "Gallery \u00b7 Units & equations",
     title: "Physics",
+    slashedDesc: "Feynman slash notation, with scripts, fonts and fractions.",
     desc1prefix: "All",
     desc1mid: "lines from",
     desc1suffix:

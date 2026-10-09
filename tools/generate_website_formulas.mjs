@@ -16,6 +16,7 @@ const ROOT = path.resolve(__dirname, "..");
 const MATH_FILE = path.join(ROOT, "tests/golden/test_cases.txt");
 const CE_FILE = path.join(ROOT, "tests/golden/test_case_ce.txt");
 const PROOFTREE_FILE = path.join(ROOT, "tests/golden/test_cases_prooftree.txt");
+const SLASHED_FILE = path.join(ROOT, "tests/golden/test_cases_slashed.txt");
 const OUT_DIR = path.join(ROOT, "website", "public", "data");
 
 /** Extra physics-flavored formulas (not in mhchem golden); shown after \\pu examples. */
@@ -205,7 +206,7 @@ function main() {
 
   const ceLines = readLinesNonEmpty(CE_FILE);
   const chemistry = [];
-  const physics = [];
+  const physics = readLinesNonEmpty(SLASHED_FILE);
 
   for (const line of ceLines) {
     if (line.includes("\\ce")) uniquePush(chemistry, line);

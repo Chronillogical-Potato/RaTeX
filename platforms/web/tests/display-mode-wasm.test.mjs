@@ -75,6 +75,22 @@ test("flat delimiter chains return JS errors instead of trapping WASM", async ()
   }
 });
 
+test("slashed accepts the depth boundary and rejects deeper input without a WASM trap", async () => {
+  await initGeneratedWasm();
+  const nested = (depth) => `${"\\slashed{".repeat(depth)}p${"}".repeat(depth)}`;
+  assert.doesNotThrow(() => JSON.parse(wasmModule.renderLatex(nested(32))));
+  for (const input of [nested(33), nested(300)]) {
+    assertJsErrorInsteadOfWasmTrap(
+      () => wasmModule.renderLatex(input),
+      /Recursion limit exceeded/
+    );
+  }
+  assertJsErrorInsteadOfWasmTrap(
+    () => wasmModule.renderLatex(`${"\\slashed".repeat(300)}p`),
+    /Unexpected end of input|Recursion limit exceeded/
+  );
+});
+
 test("many consecutive comments stay flat through the WASM pipeline", async () => {
   await initGeneratedWasm();
 

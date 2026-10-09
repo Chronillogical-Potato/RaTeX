@@ -22,7 +22,7 @@ pub fn register(map: &mut HashMap<&'static str, FunctionSpec>) {
 
     define_function_full(
         map,
-        &["\\cancel", "\\bcancel", "\\xcancel", "\\phase"],
+        &["\\cancel", "\\bcancel", "\\xcancel", "\\phase", "\\slashed"],
         "enclose",
         1,
         0,

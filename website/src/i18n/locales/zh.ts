@@ -306,6 +306,7 @@ export const zh: TranslationDict = {
   physicsGallery: {
     eyebrow: "图库 · 单位与方程",
     title: "物理",
+    slashedDesc: "费曼斜杠记号，支持上下标、字体和分式组合。",
     desc1prefix: "来自",
     desc1mid: "中的所有",
     desc1suffix: "行，加上一组精选经典公式（如薛定谔方程、麦克斯韦方程）用于视觉冒烟测试。",

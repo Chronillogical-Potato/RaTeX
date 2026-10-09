@@ -16,8 +16,8 @@ const ceFileUrl = repoBlob("tests/golden/test_case_ce.txt");
 ---
 
 <BaseLayout
-  title="RaTeX — Physics gallery (mhchem \\pu)"
-  description="Golden-suite \\pu lines plus curated equations, rendered with RaTeX WASM."
+  title="RaTeX — Physics gallery"
+  description="Feynman slash notation, golden-suite \\pu lines and curated equations, rendered with RaTeX WASM."
   active="physics"
   lang={lang}
   copyright={t.footer.copyright}
@@ -30,6 +30,10 @@ const ceFileUrl = repoBlob("tests/golden/test_case_ce.txt");
       initializingText={t.gallery.initializing}
       renderedText={t.gallery.rendered}
     >
+      <p>
+        <code class="font-mono text-sm bg-surface-container px-1 rounded">\slashed</code>
+        {" "}— {t.physicsGallery.slashedDesc}
+      </p>
       <p>
         {t.physicsGallery.desc1prefix} <code class="font-mono text-sm bg-surface-container px-1 rounded">\pu</code>
         {" "}{t.physicsGallery.desc1mid}

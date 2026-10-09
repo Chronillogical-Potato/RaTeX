@@ -53,6 +53,8 @@ RaTeX 是同一个 KaTeX 兼容的数学引擎，但编译到一个可移植的 
 
 **物理单位** — `\pu` 支持符合 IUPAC 规范的数值+单位表达式。
 
+**费曼斜杠记号** — 支持 `\slashed{p}`、`\slashed{\partial}` 及上下标、字体组合。
+
 **证明树** — 支持 bussproofs 风格的 `prooftree`，可渲染推理规则与相继式演算：
 
 ```latex

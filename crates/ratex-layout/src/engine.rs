@@ -3757,6 +3757,10 @@ fn layout_enclose(
     use crate::layout_box::BoxContent;
     use ratex_types::color::Color;
 
+    if label == "\\slashed" {
+        return layout_slashed(body, options, None);
+    }
+
     // \phase: angle mark (diagonal line) below the body with underline
     if label == "\\phase" {
         return layout_phase(body, options);
@@ -3803,6 +3807,75 @@ fn layout_enclose(
             bg_color: bg,
             border_color: border,
         },
+        color: options.color,
+    }
+}
+
+/// Feynman slash notation, following carlisle/slashed.sty v0.01.
+/// Both glyph boxes are centered in the larger width; their vertical centers
+/// coincide. The package's built-in optical corrections are argument-specific.
+fn layout_slashed(
+    body: &ParseNode,
+    options: &LayoutOptions,
+    body_font: Option<FontId>,
+) -> LayoutBox {
+    let token = match body {
+        ParseNode::OrdGroup { body, .. } if body.len() == 1 => &body[0],
+        _ => body,
+    };
+    let (slash, dx, dy) = match token {
+        ParseNode::MathOrd { text, .. } | ParseNode::TextOrd { text, .. } => match text.as_str() {
+            "D" => ("/", 0.08, 0.0),
+            "A" => ("/", 0.1, 0.0),
+            "k" => ("/", 0.0, -0.05),
+            "\\partial" => ("/", 0.1, 0.0),
+            "f" => ("\\@not", -0.6, 0.0),
+            _ => ("/", 0.0, 0.0),
+        },
+        _ => ("/", 0.0, 0.0),
+    };
+    let inner = match body_font {
+        Some(font_id) => layout_with_font(body, font_id, options),
+        None => layout_node(body, options),
+    };
+    // The slash keeps its math font even when a font command wraps the body.
+    let overlay = layout_symbol(slash, Mode::Math, options);
+    // LaTeX's \not has zero advance; keep the glyph box unchanged for rendering.
+    let overlay_advance = if slash == "\\@not" {
+        0.0
+    } else {
+        overlay.width
+    };
+    let width = inner.width.max(overlay_advance);
+    // The implementation in slashed.sty uses slash height + depth for dy
+    // (despite the older prose comment describing a width-relative shift).
+    let shift = (inner.height - inner.depth - overlay.height + overlay.depth) / 2.0
+        + dy * (overlay.height + overlay.depth);
+    let height = inner.height.max(overlay.height + shift);
+    let depth = inner.depth.max(overlay.depth - shift);
+    let overlay_x = (width - overlay_advance) / 2.0 + dx * inner.width;
+    let inner_x = (width - inner.width) / 2.0;
+    let overlay_end = overlay_x + overlay.width;
+    let raised = LayoutBox {
+        width: overlay.width,
+        height: overlay.height + shift,
+        depth: overlay.depth - shift,
+        content: BoxContent::RaiseBox {
+            body: Box::new(overlay),
+            shift,
+        },
+        color: options.color,
+    };
+    LayoutBox {
+        width,
+        height,
+        depth,
+        content: BoxContent::HBox(vec![
+            LayoutBox::new_kern(overlay_x),
+            raised,
+            LayoutBox::new_kern(inner_x - overlay_end),
+            inner,
+        ]),
         color: options.color,
     }
 }
@@ -4120,6 +4193,9 @@ fn layout_with_font(node: &ParseNode, font_id: FontId, options: &LayoutOptions) 
                 options,
                 Some(font_id),
             )
+        }
+        ParseNode::Enclose { label, body, .. } if label == "\\slashed" => {
+            layout_slashed(body, options, Some(font_id))
         }
         ParseNode::MathOrd { text, mode, .. }
         | ParseNode::TextOrd { text, mode, .. }
