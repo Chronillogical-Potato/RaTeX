@@ -30,10 +30,15 @@
 pub mod jni;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
+use std::sync::Arc;
 
-use ratex_layout::{layout, to_display_list, validate_layout, LayoutOptions};
+use ratex_layout::{
+    layout, layout_with_fallback_metrics, to_display_list, validate_layout, FallbackGlyphMetrics,
+    LayoutOptions,
+};
 use ratex_parser::parse;
 use ratex_types::math_style::MathStyle;
 use serde_json::Value;
@@ -87,10 +92,14 @@ fn do_layout(
     latex_str: &str,
     style: MathStyle,
     color: ratex_types::color::Color,
+    metrics: Option<Arc<HashMap<char, FallbackGlyphMetrics>>>,
 ) -> Result<String, String> {
     let nodes = parse(latex_str).map_err(|e| format!("parse error: {e}"))?;
     let options = LayoutOptions::default().with_style(style).with_color(color);
-    let layout_box = layout(&nodes, &options);
+    let layout_box = match metrics {
+        Some(metrics) => layout_with_fallback_metrics(&nodes, &options, metrics),
+        None => layout(&nodes, &options),
+    };
     validate_layout(&layout_box)?;
     let display_list = to_display_list(&layout_box);
     let value =
@@ -173,6 +182,55 @@ pub struct RatexOptions {
     pub color: *const RatexColor,
 }
 
+/// Host-measured metrics for one Unicode scalar, in em at the base font size.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct RatexFallbackGlyphMetrics {
+    pub char_code: u32,
+    pub width: f64,
+    pub height: f64,
+    pub depth: f64,
+}
+
+unsafe fn read_fallback_metrics(
+    metrics: *const RatexFallbackGlyphMetrics,
+    count: usize,
+) -> Result<Option<Arc<HashMap<char, FallbackGlyphMetrics>>>, String> {
+    if count > isize::MAX as usize / std::mem::size_of::<RatexFallbackGlyphMetrics>() {
+        return Err("fallback metrics array exceeds the addressable size".into());
+    }
+    if count == 0 {
+        return Ok(None);
+    }
+    if metrics.is_null() || !metrics.is_aligned() {
+        return Err("nonempty fallback metrics require a non-null, aligned pointer".into());
+    }
+    // The byte size fits in isize; the caller guarantees readable storage.
+    let entries = unsafe { std::slice::from_raw_parts(metrics, count) };
+    let mut map = HashMap::new();
+    map.try_reserve(count)
+        .map_err(|e| format!("cannot allocate fallback metrics: {e}"))?;
+    for entry in entries {
+        let ch = char::from_u32(entry.char_code)
+            .ok_or_else(|| format!("invalid fallback Unicode scalar: U+{:X}", entry.char_code))?;
+        if !entry.width.is_finite() || !entry.height.is_finite() || !entry.depth.is_finite() {
+            return Err(format!(
+                "non-finite fallback metrics for U+{:X}",
+                entry.char_code
+            ));
+        }
+        map.insert(
+            ch,
+            FallbackGlyphMetrics {
+                width: entry.width,
+                height: entry.height,
+                depth: entry.depth,
+            },
+        );
+    }
+    Ok(Some(Arc::new(map)))
+}
+
 /// Result returned by [`ratex_parse_and_layout`].
 ///
 /// On success: `error_code == 0` and `data` is a heap-allocated JSON string;
@@ -203,6 +261,36 @@ pub unsafe extern "C" fn ratex_parse_and_layout(
     latex: *const c_char,
     opts: *const RatexOptions,
 ) -> RatexResult {
+    unsafe { parse_and_layout(latex, opts, std::ptr::null(), 0) }
+}
+
+/// Parse and lay out using host metrics for glyphs missing from the KaTeX fonts.
+///
+/// Measure in base-size em with the font used for drawing; layout applies scaling.
+/// All entries require valid scalars and finite values; the last duplicate wins.
+/// Entries are copied; no host pointers are retained.
+/// Empty tables ignore `metrics` and behave like [`ratex_parse_and_layout`].
+///
+/// # Safety
+/// - `latex` and `opts` follow [`ratex_parse_and_layout`]'s requirements.
+/// - For nonzero `metrics_count`, `metrics` must point to that many initialized,
+///   aligned, readable entries in one allocation, unchanged until return.
+#[no_mangle]
+pub unsafe extern "C" fn ratex_parse_and_layout_with_fallback_metrics(
+    latex: *const c_char,
+    opts: *const RatexOptions,
+    metrics: *const RatexFallbackGlyphMetrics,
+    metrics_count: usize,
+) -> RatexResult {
+    unsafe { parse_and_layout(latex, opts, metrics, metrics_count) }
+}
+
+unsafe fn parse_and_layout(
+    latex: *const c_char,
+    opts: *const RatexOptions,
+    metrics: *const RatexFallbackGlyphMetrics,
+    metrics_count: usize,
+) -> RatexResult {
     let err_result = |msg: &str| -> RatexResult {
         set_last_error(msg);
         RatexResult {
@@ -222,13 +310,20 @@ pub unsafe extern "C" fn ratex_parse_and_layout(
         Err(e) => return err_result(&format!("invalid UTF-8 in latex string: {e}")),
     };
 
+    // Read only fields covered by struct_size; legacy callers may allocate
+    // less than a complete RatexOptions, so do not form a reference to it.
+    let opts_size = if opts.is_null() {
+        0
+    } else {
+        unsafe { std::ptr::addr_of!((*opts).struct_size).read() }
+    };
     let style = if opts.is_null() {
         MathStyle::Display
     } else {
-        let opts_ref = unsafe { &*opts };
         let min_size =
             std::mem::offset_of!(RatexOptions, display_mode) + std::mem::size_of::<c_int>();
-        if opts_ref.struct_size >= min_size && opts_ref.display_mode == 0 {
+        if opts_size >= min_size && unsafe { std::ptr::addr_of!((*opts).display_mode).read() } == 0
+        {
             MathStyle::Text
         } else {
             MathStyle::Display
@@ -238,12 +333,16 @@ pub unsafe extern "C" fn ratex_parse_and_layout(
     let color = if opts.is_null() {
         ratex_types::color::Color::BLACK
     } else {
-        let opts_ref = unsafe { &*opts };
         let color_size =
             std::mem::offset_of!(RatexOptions, color) + std::mem::size_of::<*const RatexColor>();
 
-        if opts_ref.struct_size >= color_size && !opts_ref.color.is_null() {
-            match validate_color(unsafe { *opts_ref.color }) {
+        let color_ptr = if opts_size >= color_size {
+            unsafe { std::ptr::addr_of!((*opts).color).read() }
+        } else {
+            std::ptr::null()
+        };
+        if !color_ptr.is_null() {
+            match validate_color(unsafe { *color_ptr }) {
                 Ok(color) => color,
                 Err(msg) => return err_result(&msg),
             }
@@ -252,7 +351,11 @@ pub unsafe extern "C" fn ratex_parse_and_layout(
         }
     };
 
-    match do_layout(latex_str, style, color) {
+    let metrics = match unsafe { read_fallback_metrics(metrics, metrics_count) } {
+        Ok(metrics) => metrics,
+        Err(message) => return err_result(&message),
+    };
+    match do_layout(latex_str, style, color, metrics) {
         Ok(json) => match CString::new(json) {
             Ok(cs) => RatexResult {
                 data: cs.into_raw(),
@@ -264,12 +367,12 @@ pub unsafe extern "C" fn ratex_parse_and_layout(
     }
 }
 
-/// Free a display list JSON string returned by [`ratex_parse_and_layout`].
+/// Free a display list JSON string returned by either parse-and-layout entry point.
 ///
 /// Passing NULL is a no-op.
 ///
 /// # Safety
-/// `ptr` must have been returned by [`ratex_parse_and_layout`] and must not be freed twice.
+/// `ptr` must have been returned by a parse-and-layout entry point and must not be freed twice.
 #[no_mangle]
 pub unsafe extern "C" fn ratex_free_display_list(ptr: *mut c_char) {
     if !ptr.is_null() {
@@ -586,5 +689,100 @@ mod tests {
         unsafe { ratex_free_display_list(result.data) };
 
         assert_default_glyph_path_color_is_black(&json);
+    }
+
+    #[test]
+    fn empty_fallback_metrics_match_original_layout() {
+        let source = r"\frac{\text{中😀}}{x}";
+        let input = CString::new(source).unwrap();
+        let result = unsafe {
+            ratex_parse_and_layout_with_fallback_metrics(
+                input.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+            )
+        };
+        assert_eq!(result.error_code, 0);
+        assert!(!result.data.is_null());
+        let json = unsafe { CStr::from_ptr(result.data) }
+            .to_str()
+            .unwrap()
+            .to_owned();
+        unsafe { ratex_free_display_list(result.data) };
+        assert_eq!(json, call(source, 1).unwrap());
+    }
+
+    #[test]
+    fn large_fallback_metrics_apply_to_layout() {
+        let input = CString::new(r"\text{中}").unwrap();
+        let mut metrics = vec![
+            RatexFallbackGlyphMetrics {
+                char_code: '中' as u32,
+                width: 1.0,
+                height: 0.8,
+                depth: 0.2,
+            };
+            65_537
+        ];
+        metrics.last_mut().unwrap().width = 1.2;
+        let result = unsafe {
+            ratex_parse_and_layout_with_fallback_metrics(
+                input.as_ptr(),
+                std::ptr::null(),
+                metrics.as_ptr(),
+                metrics.len(),
+            )
+        };
+        assert_eq!(result.error_code, 0);
+        assert!(!result.data.is_null());
+        let json = unsafe { CStr::from_ptr(result.data) }
+            .to_str()
+            .unwrap()
+            .to_owned();
+        unsafe { ratex_free_display_list(result.data) };
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["width"], 1.2);
+        assert_eq!(value["height"], 0.8);
+        assert_eq!(value["depth"], 0.2);
+    }
+
+    #[test]
+    fn invalid_fallback_metrics_return_error() {
+        let input = CString::new("x").unwrap();
+        let metrics = RatexFallbackGlyphMetrics {
+            char_code: '中' as u32,
+            width: 1.2,
+            height: 0.8,
+            depth: 0.2,
+        };
+        let invalid_scalar = RatexFallbackGlyphMetrics {
+            char_code: 0xD800,
+            ..metrics
+        };
+        let invalid_width = RatexFallbackGlyphMetrics {
+            width: f64::NAN,
+            ..metrics
+        };
+        let oversized_count =
+            isize::MAX as usize / std::mem::size_of::<RatexFallbackGlyphMetrics>() + 1;
+        for (ptr, count) in [
+            (std::ptr::null(), 1),
+            (&metrics as *const _, oversized_count),
+            (&invalid_scalar, 1),
+            (&invalid_width, 1),
+        ] {
+            let result = unsafe {
+                ratex_parse_and_layout_with_fallback_metrics(
+                    input.as_ptr(),
+                    std::ptr::null(),
+                    ptr,
+                    count,
+                )
+            };
+            assert_eq!(result.error_code, 1);
+            assert!(result.data.is_null());
+            assert!(!ratex_get_last_error().is_null());
+        }
     }
 }

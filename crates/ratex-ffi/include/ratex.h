@@ -20,7 +20,7 @@
  *   0 — inline (text) style,   equivalent to $...$
  *
  * Thread safety:
- *   ratex_parse_and_layout and ratex_get_last_error use thread-local storage for
+ *   Both layout entry points and ratex_get_last_error use thread-local storage for
  *   error state, so they are safe to call concurrently from multiple threads.
  *   Each thread has its own last-error slot.
  *
@@ -68,6 +68,7 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+#include <stdint.h>
 
 /**
  * Options for ratex_parse_and_layout().
@@ -110,18 +111,49 @@ typedef struct {
  */
 RatexResult ratex_parse_and_layout(const char* latex, const RatexOptions* opts);
 
+/** Metrics of one Unicode scalar in em at the base font size. */
+typedef struct {
+    uint32_t char_code;
+    double width;
+    double height;
+    double depth;
+} RatexFallbackGlyphMetrics;
+
 /**
- * Free a JSON string returned by ratex_parse_and_layout().
+ * Parse and lay out using host metrics for glyphs missing from the KaTeX fonts.
+ *
+ * Measure in base-size em with the font used for drawing; layout applies scaling.
+ * All entries require valid Unicode scalars and finite values (signed values are
+ * allowed). The last duplicate wins.
+ * Known KaTeX glyphs and unlisted characters keep their normal metrics.
+ *
+ * @param latex          Same as ratex_parse_and_layout().
+ * @param opts           Same as ratex_parse_and_layout().
+ * @param metrics        Aligned, readable array of initialized entries, unchanged
+ *                       until return. Copied during the call; no pointers retained.
+ * @param metrics_count  Number of entries; array byte size must not exceed PTRDIFF_MAX.
+ *                       Zero ignores metrics (NULL allowed) and matches the original API.
+ * @return               Same result and error contract as ratex_parse_and_layout();
+ *                       free successful results with ratex_free_display_list().
+ */
+RatexResult ratex_parse_and_layout_with_fallback_metrics(
+    const char* latex,
+    const RatexOptions* opts,
+    const RatexFallbackGlyphMetrics* metrics,
+    size_t metrics_count);
+
+/**
+ * Free a JSON string returned by either layout entry point.
  *
  * @param json  Pointer to free. Passing NULL is a no-op.
  */
 void ratex_free_display_list(char* json);
 
 /**
- * Return the last error message produced by ratex_parse_and_layout() on this thread.
+ * Return the last error message produced by either layout entry point on this thread.
  *
  * @return  A null-terminated UTF-8 error string, or NULL if no error has occurred.
- *          The pointer is valid until the next call to ratex_parse_and_layout() on
+ *          The pointer is valid until the next call to either layout entry point on
  *          this thread. Do NOT free this pointer.
  */
 const char* ratex_get_last_error(void);
