@@ -49,7 +49,8 @@ LaTeX string  (UTF-8)
 | Signature | Description |
 |-----------|-------------|
 | `RatexResult ratex_parse_and_layout(const char* latex, const RatexOptions* opts)` | Parse + layout → JSON DisplayList. On success: `error_code==0`, `data!=NULL` (free with `ratex_free_display_list`). On error: `error_code!=0`, `data==NULL` (details via `ratex_get_last_error`). |
-| `void ratex_free_display_list(char* json)` | Free the JSON string returned by `ratex_parse_and_layout`. NULL is a no-op. |
+| `RatexResult ratex_parse_and_layout_with_fallback_metrics(const char* latex, const RatexOptions* opts, const RatexFallbackGlyphMetrics* metrics, size_t metrics_count)` | Same pipeline with host-measured fallback glyph metrics. An empty table matches the original entry point. |
+| `void ratex_free_display_list(char* json)` | Free the JSON string returned by either parse-and-layout entry point. NULL is a no-op. |
 | `const char* ratex_get_last_error(void)` | Thread-local last error. Valid until next call on this thread. Do NOT free. |
 
 ### Structs
@@ -59,6 +60,7 @@ LaTeX string  (UTF-8)
 | `RatexColor` | `float r, g, b, a;` | Normalized RGBA in \([0, 1]\). Invalid components are rejected when the color pointer is used (see `ratex.h`). |
 | `RatexOptions` | `size_t struct_size; int display_mode; const RatexColor* color;` | Always set `struct_size = sizeof(RatexOptions)`. Fields beyond `struct_size` are ignored (forward compatibility). `display_mode`: `0` inline (`$...$`), `1` display (`$$...$$`). **`color`**: pointer to a `RatexColor` written by the caller; **`NULL` means default black** (same as omitting the field for legacy callers whose `struct_size` ends before this member). `opts` may be NULL (defaults to display style and black). |
 | `RatexResult` | `char* data; int error_code;` | Success: `error_code==0`, `data` is a heap string. Error: `error_code!=0`, `data==NULL`. |
+| `RatexFallbackGlyphMetrics` | `uint32_t char_code; double width, height, depth;` | A Unicode scalar and finite measurements in base-size em, using the font the host will draw. See [`ratex.h`](../crates/ratex-ffi/include/ratex.h) for the table contract. |
 
 ### Build artifacts
 
